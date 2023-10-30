@@ -1,0 +1,68 @@
+%Template file for Scientific Computation project 1 discussion and figures
+\documentclass{article}
+\usepackage[a4paper, margin=1in]{geometry}
+\title{Scientific Computation Project 1}
+\usepackage{minted}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\newcommand{\trm}{\textrm}
+\newcommand{\pa}{\partial}
+\author{\emph{02045099}}
+
+\usepackage{graphicx}
+
+\begin{document}
+
+\maketitle
+
+%---------------- Part 1  -------------------
+\hrule
+\hrule
+
+\subsection*{Part 1}
+
+
+\subsubsection*{1.}
+%Place your discussion for question 1 here
+In the function Part1, the list is split into 2 parts with the first part being searched using an Insertion Sort, and the second part being searched using a Binary Insertion Sort. The input $i^*$ is the index of the list at which it swaps from the Insertion Sort to the Binary Insertion Sort method. How we set $i^*$ determines the computational cost of the function. If we set $i^*$ to 0, we get the function only using the Binary Insertion Sort algorithm which has a computational cost of $O(Nlog_{2}(N))$, since each Binary Search is $O(log_{2}(N))$ and N of these are completed. This computational cost is better than if we set $i^*$ to N-1, where we get our worst case cost of $O(N^2)$, as seen when using the Insertion Sort algorithm in lectures. Between these values, the 
+
+
+\subsubsection*{2.}
+%Place your discussion for question 2 here
+
+
+\begin{figure}[h!]
+\centering
+%Uncomment line below to display figure saved as fig1.png
+\includegraphics[width=0.8\textwidth]{fig1.png}
+
+\caption{Figure 1: Add figure description here}
+\label{fig1}
+\end{figure}
+
+%Add additional figure if needed
+
+
+
+%---------------- End Part 1 -------------------
+
+\vspace{0.25in}
+
+%---------------- Part 2  -------------------
+\subsection*{Part 2}
+
+\subsubsection*{2.}
+
+%Place your discussion for question 2 here}
+%---------------- End Part 2 -------------------
+
+
+\hrule
+\hrule
+
+
+
+%---------------- End document -------------------
+
+
+\end{document}
