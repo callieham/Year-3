@@ -1,5 +1,5 @@
 """Scientific Computation Project 3
-Your CID here
+02045099
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,6 +18,9 @@ def plot_field(lat,lon,u,time,levels=20):
     time: time at which wind speed will be plotted (index between 0 and 364)
     levels: number of contour levels in plot
     """
+    
+
+
     plt.figure()
     plt.contourf(lon,lat,u[time,:,:],levels)
     plt.axis('equal')
@@ -210,7 +213,7 @@ def part3q2(x,c=1.0):
     A2 = (v2[:,:x]).dot((v1[:,:x]).T)
     e = np.sum((A2.real-A)**2)
 
-    return A2.real,e
+    return A2.real,e,A
 
 
 if __name__=='__main__':
