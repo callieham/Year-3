@@ -213,7 +213,7 @@ def part3q2(x,c=1.0):
     A2 = (v2[:,:x]).dot((v1[:,:x]).T)
     e = np.sum((A2.real-A)**2)
 
-    return A2.real,e,A
+    return A2.real,e, np.shape(A)
 
 
 if __name__=='__main__':
