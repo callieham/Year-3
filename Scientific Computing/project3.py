@@ -376,11 +376,11 @@ def part3_analyze():#add/remove input variables if needed
     #---Example code for computing solution, use/modify/discard as needed---#
     c_vals = [0.5, 1.0, 1.3, 1.4] # initialise c values to analyse
 
-    epsilons = np.logspace(-1, 2.5, 100) # choose range of epsilon
+    epsilons = np.logspace(-1, 2.5, 1000) # choose range of epsilon
 
     a_vals = np.zeros(4) # initialise array to store correlation dimensions
 
-    indices = [40, 70] # store indices for choosing epsilon so I can tweak it
+    indices = [[400, 700], [500, 800], [750, 800], [750, 800]] # store indices for choosing epsilon so I can tweak it
 
     # initialise frequencies and variance ratios of first principal component for analysis
     frequencies = np.zeros(4)
@@ -405,7 +405,7 @@ def part3_analyze():#add/remove input variables if needed
         # calculate solution for this value of c
         y0 = np.zeros(2*n)
         y0[:n]=1+0.2*np.cos(4*k*a0)+0.3*np.sin(7*k*a0)+0.1*A0.real
-        t,y = part3q1(y0,alpha,beta,b,c_val,tf=20,Nt=2,method='RK45')
+        t,y = part3q1(y0,alpha,beta,b,c_val,tf=200,Nt=20,method='RK45')
         y0 = y[-1,:]
         t,y = part3q1(y0,alpha,beta,b,c_val,method='RK45',err=1e-6)
         u,v = y[:,:n],y[:,n:]
@@ -418,8 +418,8 @@ def part3_analyze():#add/remove input variables if needed
         ax1[plot].set_xlabel('$\epsilon$')
         ax1[plot].set_ylabel('$C(\epsilon)$')
         ax1[plot].set_title(f'log-log plot for c = {c_val}')
-        m, c = np.polyfit(np.log(epsilons[indices[0]:indices[1]]), np.log(C[indices[0]:indices[1]]), 1) # fit line to loglog plot with gradient d
-        ax1[plot].plot(epsilons, np.exp(c) * epsilons**m, linestyle='dashed', label = f'slope = {"%.2f" % round(m, 2)}') # plot fitted line
+        m, c = np.polyfit(np.log(epsilons[indices[i]]), np.log(C[indices[i]]), 1) # fit line to loglog plot with gradient d
+        ax1[plot].plot(epsilons[indices[i]], np.exp(c) * epsilons[indices[i]]**m, linestyle='dashed', label = f'slope = {"%.2f" % round(m, 2)}') # plot fitted line
         ax1[plot].legend(loc = 'upper left')
         a_vals[i] = m # store dimension value
 
