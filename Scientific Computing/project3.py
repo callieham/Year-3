@@ -256,7 +256,33 @@ def part2_analyze():
     ax.plot_surface(xg, yg, frankes_function(xg, yg), cmap='viridis')
     ax.set_title("Franke's Function")
 
-    return np.max(np.abs(fI1 - fI_true)), np.max(np.abs(fI2 - fI_true)), 1-np.mean(np.abs(fI1 - fI_true)/fI_true), np.mean(np.abs(fI2 - fI_true)/fI_true), t2-t1, t3-t2, np.sqrt(np.mean((fI1 - fI_true) ** 2)), np.sqrt(np.mean((fI2 - fI_true) ** 2)) #modify as needed
+    m_list = np.arange(10, 500, 5, dtype='int')
+    errors = np.zeros((98, 2))
+    for i, m2 in enumerate(m_list):
+        temp_error = np.zeros(2)
+        for j in range(100):
+            n2 = m2 + 10
+            x2 = np.linspace(0,1,n2)
+            y2 = np.linspace(0,1,m2)
+            xg2,yg2 = np.meshgrid(x2,y2)
+            dy2 = y2[1]-y2[0]
+            yI2 = y2[:-1]+dy2/2
+            f2 = frankes_function(xg2, yg2)
+            fI_true_2 = frankes_function(xg2[:-1, :], yI2[:, None])
+            fI1_2 = part2(f2, method=1)
+            fI2_2 = part2(f2, method=2)
+            temp_error += np.array([np.mean(np.abs(fI1_2 - fI_true_2)), np.mean(np.abs(fI2_2 - fI_true_2))])
+        errors[i, :] = temp_error/100
+    
+    fig, ax = plt.subplots(figsize = (8, 6))
+    ax.semilogy(m_list, errors[:, 0], label = 'method 1')
+    ax.semilogy(m_list, errors[:, 1], label = 'method 2')
+    ax.set_xlabel('Number of Interpolatory Points, m')
+    ax.set_ylabel('Averaged Absolute Error')
+    ax.set_title('Decay of Error with Increased Matrix Size')
+    ax.legend(loc = 'upper right')
+
+    return np.max(np.abs(fI1 - fI_true)), np.max(np.abs(fI2 - fI_true)), 1-np.mean(np.abs(fI1 - fI_true)/fI_true), np.mean(np.abs(fI2 - fI_true)/fI_true), t2-t1, t3-t2 #modify as needed
 
 
 
