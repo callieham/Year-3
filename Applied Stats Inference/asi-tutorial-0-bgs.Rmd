@@ -1,0 +1,361 @@
+---
+title: "Applied Statistical Inference - Tutorial 0"
+author: "Chris Hallsworth"
+date: "2024-01-12"
+output: 
+  rmdformats::robobook:
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(bookdown)
+
+```
+
+# Introduction
+
+This tutorial aims to revise topics covered in earlier statistics modules. We'll draw the ideas together by exploring a dataset in detail. We'll also give a brief illustration of some ideas that will be covered in more detail during the module.
+
+In what follows, we will
+
+- Demonstrate maximum likelihood estimation
+- Illustrate asymptotic normality of MLEs
+- Introduce the idea of the bootstrap
+
+The idea of maximum likelihood estimation, and the asymptotic properties of maximum likelihood estimators, should be familiar from earlier work. The bootstrap might be new to you: we'll say more about it in lectures.
+
+You're not expected to know all of the R functions that we're using below. All of these are well-documented, and you are very welcome to ask about R practicalities on EdStem or during the lectures. 
+
+# The data
+Consider the following data from the [British Geological Survey](https://earthquakes.bgs.ac.uk/) on recent UK seismic activity. The data file supplied runs through 2022 - 3. You can download the [exact data file](https://earthquakes.bgs.ac.uk/cgi-bin/get_events?lat1=49&lat2=63&lon1=-12&lon2=5&lat0=&lon0=&radius=&date1=2022-01-12&date2=2023-01-7&dep1=&dep2=&mag1=&mag2=&nsta1=&nsta2=&output=csv), or [get your own data ](https://earthquakes.bgs.ac.uk/earthquakes/dataSearch.html) for a time period and region of your choice.
+
+First read in the data. You'll need to make sure the path matches where you put the file.
+```{r, message = FALSE}
+library(tidyverse)
+bgs <- read_csv("/Users/calam/Desktop/Year 3/Applied Stats Inference/bgs-2023.csv", show_col_types = FALSE)
+```
+
+In RStudio, you can explore the data frame using `View()`.
+
+Then make a single date-time object by combining the first two columns
+```{r}
+bgs$dt <- as.POSIXct(paste(bgs$`yyyy-mm-dd`,
+                           bgs$`hh:mm:ss.ss`),
+                     format = "%Y-%m-%d %H:%M:%S")
+```
+
+Define a new variable, which is the time difference in seconds between successive earthquakes
+```{r}
+inter_eq_times <- as.numeric(diff(bgs$dt))
+```
+
+In what follows we will just be concerned with the `inter_eq_times`.
+
+# A probability model
+
+We'll make a simple model for the occurrence of (detected) earthquakes in time.
+
+The exponential distribution is often used for waiting times
+
+$$ f_Y(y; \lambda) = \lambda \exp(-\lambda y), \qquad y > 0, \lambda > 0. $$
+
+Here we have chosen to parameterize the distribution using its rate $\lambda$. 
+
+***
+__Questions:__
+
+1. What are the units of $\lambda$?
+2. What assumptions about the occurrence of earthquakes are implied by the chosen model? Considering the scale of our data, are they reasonable? How can we check?
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+1. When time is measured in seconds, $\lambda$ has units $1/sec$.
+2. The exponential distribution implies a 'memoryless' property, i.e. a model in which earthquakes occur randomly in time. For any small region, one can think of physical reasons why this would not be a good model: Earthquakes are sudden releases of energy as a result of stress that has built up in a localized area. Smaller aftershocks typically occur quickly a large earthquake. Once stress has been released after a series of substantial earthquakes, a 'refractory period' without earthquakes could be expected, while stress builds up.
+
+However, our data refer to a large area over only a year: we are unlikely to be able to see these more subtle effects without incorporating location information. Looking at the marginal distribution of inter-activity times (i.e. ignoring location information), a "random arrivals" model does not seem unreasonable. We'll evaluate the model in what follows.
+
+</details>
+
+***
+
+
+# Exploratory plots
+
+We start by making an exploratory histogram
+
+```{r}
+hist(inter_eq_times,
+     breaks = 100,
+     xlab = "inter-activity time (sec)",
+     main = "")
+```
+
+Given the scale of the data, it will be cleaner to measure the inter-activity time in days,
+
+```{r}
+inter_eq_days <- inter_eq_times / (60*60*24)
+```
+
+The histogram scale is now easier to read at a glance.
+
+```{r}
+hist(inter_eq_days,
+     breaks = 100,
+     xlab = "inter-activity time (days)",
+     main = "")
+```
+
+The plot might look better with a different number of bins. [**Question:** What does 'better' mean?]
+
+Here it is with 30 bins.
+
+```{r}
+hist(inter_eq_days,
+     breaks = 30,
+     xlab = "inter-activity time (days)",
+     main = "")
+```
+
+# Estimating the model parameter
+
+Our simple model has a single free parameter, $\lambda$. How do we estimate it from the data?
+
+When we have a probability model, the *likelihood principle* gives us the answer. This states that all information in the data about the parameters is contained in the likelihood function $L(\lambda)$, i.e. the probability distribution of the observed data, regarded as a function of the free parameters.
+
+The value of $\lambda$ at which $L$ achieves a maximum is a natural estimate.
+ 
+For this model, we get
+
+$$ \widehat{\lambda} = \frac{n}{\sum_{i=1}^n y_i} = \frac{1}{\bar{y}}.$$
+
+***
+**Recommended exercise:** You should be able to derive this expression, and explain why it is plausible in the data context. 
+
+
+<details> <summary> *Show derivation of maximum likelihood estimator* </summary> 
+
+$$ L(\lambda) = \prod_{i=1}^n \lambda \exp(-\lambda y_i ) = \lambda^n \exp\left( - \lambda\sum_{i=1} ^n y_i\right), $$
+
+so that 
+
+$$  l(\lambda) = n \log \lambda - \lambda \sum_{i=1} ^n y_i $$
+giving the derivative of $l$ as 
+$$ \frac{\partial l(\lambda)}{\partial \lambda} =  \frac{n}{\lambda} - \sum_{i=1} ^n y_i.   $$
+
+This is is zero where $\lambda = \frac{1}{\bar{y}}$ as claimed.
+
+The second derivative is
+
+$$ \frac{\partial l^2(\lambda)}{\partial \lambda^2} = -\frac{n}{\lambda^2},  $$
+
+which is negative, so that $\widehat{\lambda}$ is a maximum as expected.
+
+Intuitively, $\lambda$ is the rate of arrivals, so the reciprocal relationship with the mean makes sense: higher mean time implies a lower rate of arrivals per unit time. 
+</details>
+  
+***  
+<br>
+
+
+We now obtain the estimate for our particular dataset
+```{r}
+lambda_hat <- 1/mean(inter_eq_days)
+```
+
+The estimated arrival rate of $\sim$ `r round(lambda_hat,1)` per day seems reasonable, given the histogram above. It also fits with having observed `r nrow(bgs)` events in a time period of 1 year.
+
+# Evaluating the model
+
+Compare our fitted model with the data, using a Q-Q plot.
+
+To do this, we plot the order statistics, i.e. the observations sorted in ascending order, against the quantiles of the exponential distribution. `ppoints` gives equally spaced points between 0 and 1, which we pass to `qexp`, the quantile function for the exponential distribution.
+
+```{r}
+n_times <- length(inter_eq_days)
+p_pts <- ppoints(n_times)
+
+qqplot(qexp(p_pts, rate = lambda_hat),
+       inter_eq_days,
+       xlab = "theoretical quantiles",
+       ylab = "empirical quantiles")
+abline(0, 1, col = "red")
+```
+
+Good agreement most of the way through the distribution. The right tail does not match so well, but is this surprising?
+
+Can easily see how much departure we would expect if we had used data genuinely sampled from the probability model.
+
+```{r}
+par(mfrow = c(4, 4),  # 4x4 grid of plots
+    mar = c(4, 4, 2, 1),  # adjust margins
+    oma = c(0, 0, 2, 0)) # adjust outer margins
+set.seed(555) # ensure reproducibility
+for(i in 1:16){
+  fake_data <- rexp(n_times, rate = lambda_hat)
+  qqplot(qexp(p_pts,
+            rate = lambda_hat),
+         fake_data,
+         xlab = "theory",
+         ylab = "fake data",
+         ylim = c(0, 8))
+  abline(0, 1, col = "red")
+}
+
+```
+
+In the 16 fake data samples, we do see departures from the identity line in the tail of the distribution, though they are not usually as large as in the observed data. Evidently the model fit is not perfect, though it is not outrageously bad. We could evaluate this more formally by using the [Kolmogorov-Smirnov test](https://en.wikipedia.org/wiki/Kolmogorov%E2%80%93Smirnov_test).
+
+# Displaying the model fit
+
+Add the probability density of our fitted model to a histogram
+```{r}
+hist(inter_eq_days,
+     breaks = 30,
+     freq = FALSE,
+     xlab = "inter-activity time (days)",
+     main = "")
+x_pts <- qexp(p_pts, rate = lambda_hat)
+lines(x_pts,
+      dexp(x_pts,
+           rate = lambda_hat),
+      col = 4)
+```
+
+The fit to the histogram seems reasonable, though it overestimates the proportion of inter-activity times around 2 days and underestimates the proportion of larger inter-activity times.
+
+
+# Uncertainty in $\widehat{\lambda}$
+
+Now, we illustrate the asymptotic sampling theory of the maximum likelihood estimator.
+
+First, we plot the log likelihood function in the vicinity of the maximum.
+
+```{r}
+lambda_seq <- seq(0.5, 1, length.out = 100)
+lambda_seq <- seq(0.2, 1.5, length.out = 100)
+
+llk <- function(lambda, data){
+  sum(dexp(data,
+            rate = lambda,
+            log = TRUE))
+}
+llk_lambda <- sapply(lambda_seq,
+                     FUN = function(x) llk(x,
+                                           inter_eq_days ))
+```
+
+```{r}
+plot(lambda_seq,
+     llk_lambda,
+     xlab = expression(lambda),
+     ylab = expression(l(lambda)))
+abline(v = lambda_hat, col = "red")
+```
+
+Visually, it is clear that the log likelihood is locally quadratic at its maximum.
+
+This means that it is well approximated by its second order Taylor expansion
+
+$$ l(\lambda) \approx l(\widehat{\lambda}) + \frac{\partial l(\widehat{\lambda})}{\partial \lambda}(\lambda - \widehat{\lambda}) +
+\frac{1}{2}\frac{\partial l^2(\widehat{\lambda})}{\partial \lambda^2}\left(\lambda - \widehat{\lambda}\right)^2$$ 
+
+From our work above, we have all that we need to inspect the accuracy of the approximation, 
+
+$$  l(\lambda) = n \log \lambda - \lambda \sum_{i=1} ^n y_i $$
+giving the derivative of $l$ as 
+$$ \frac{\partial l(\lambda)}{\partial \lambda} =  \frac{n}{\lambda} - \sum_{i=1} ^n y_i, \qquad \frac{\partial l^2(\lambda)}{\partial \lambda^2} = -\frac{n}{\lambda^2}   $$
+
+We can implement this as follows, noting that the first derivative term vanishes at the maximum.
+
+```{r}
+llk_taylor <- function(lambda, lambda_hat, data){
+  n <- length(data)
+  llk(lambda_hat, data) - 0.5*n*(lambda_hat - lambda)^2/lambda_hat^2
+}
+```
+
+```{r}
+llk_approx <- llk_taylor(lambda_seq,
+                         lambda_hat,
+                         inter_eq_days)
+```
+
+```{r}
+plot(lambda_seq,
+     llk_lambda,
+     xlab = expression(lambda),
+     ylab = expression(l(lambda)))
+lines(lambda_seq, llk_approx, col = "red")
+```
+
+The quadratic approximation appears good close to the MLE. 
+This suggests that the asymptotic results for maximum likelihood estimators should apply. Recall that for large samples, the sampling distribution of the maximum likelihood estimator is approximately normal, centred on the true value,
+
+$$ \widehat{\lambda} \sim N\left(\lambda,\frac{1}{I(\lambda)}  \right), $$
+where the Fisher information is
+
+$$ I(\lambda) = E\left[ - \frac{\partial^2 l}{\partial \lambda^2} \right]. $$
+In this case
+
+$$ \widehat{\lambda} \sim N\left(\lambda, \frac{\lambda^2}{n} \right). $$
+Meaning that we can estimate the standard error of $\widehat{\lambda}$ as
+
+```{r}
+lambda_se <- lambda_hat/sqrt(length(inter_eq_days))
+```
+
+This evaluates to `r round(lambda_se, 3)`.
+
+Using this result, we can make an approximate 95\% confidence interval for $\lambda$ as
+
+$$ \widehat{\lambda} \pm 1.96 \frac{\widehat{\lambda}}{\sqrt{n}}.$$
+This evaluates to ( `r round(lambda_hat + c(-1,1)*1.96*lambda_se,2) ` ).
+
+# The bootstrap
+
+We can check that all is working as intended using the *bootstrap*. We generate a large number $B$ of synthetic datasets of size $n$ by sampling with replacement from our original data. For each bootstrap sample, we compute the maximum likelihood estimate $\widehat{\lambda}^{*}$. 
+
+The idea is that the bootstrap distribution $\widehat{\lambda}_1^{*}, \ldots, \widehat{\lambda}_B^{*}$  is an approximation to the sampling distribution of $\widehat{\lambda}$.
+
+Here we will work with $B = 2000$.
+
+```{r}
+n_boot <- 2000
+lambda_hat_boot <- rep(0, times = n_boot)
+for(i in 1:n_boot){
+  inter_eq_boot <- sample(inter_eq_days, replace = TRUE)
+  lambda_hat_boot[i] <- 1/mean(inter_eq_boot)
+}
+```
+
+We compare the bootstrap distribution of $\widehat{\lambda}$ with a normal distribution using a Q-Q plot.
+
+```{r}
+qqnorm(lambda_hat_boot)
+qqline(lambda_hat_boot, col = "red")
+```
+
+The bootstrap distribution is close to normal, as expected. Its standard deviation is
+
+```{r}
+sd(lambda_hat_boot)
+```
+
+Close to the value predicted by the asymptotic theory.
+
+We can also compare the central 95\% of the bootstrap distribution with the endpoints of the approximate confidence interval computed above.
+
+```{r}
+quantile(lambda_hat_boot, c(.025, .975))
+```
+
+A good match between the asymptotic confidence interval and the bootstrap sampling distribution.
+
+# Supplementary reading (for interest)
+
+Really, the model proposed here is quite simplistic: in this dataset, we're mostly seeing noise. If the topic is of interest, you might enjoy the article below, which goes a lot further.
+
+[Ogata, Yosihiko. "Statistical models for earthquake occurrences and residual analysis for point processes." Journal of the American Statistical association 83.401 (1988): 9-27.](https://www.tandfonline.com/doi/abs/10.1080/01621459.1988.10478560)
