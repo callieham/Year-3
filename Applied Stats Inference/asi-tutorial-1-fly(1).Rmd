@@ -1,0 +1,410 @@
+---
+title: "Fly"
+author: "Chris Hallsworth"
+date: "2024-01-04"
+output: 
+  rmdformats::robobook:
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+In this tutorial, we will see how the linear model is used to analyse data experimental data.
+
+
+In what follows, we will
+
+- Fit a linear model using the `lm` command and see how to reproduce the output from first principles. 
+- Revise confidence intervals using the t-distribution
+- Revise the F-test for comparing nested linear models.
+- Use a bootstrap approach to produce confidence intervals that do not require any assumptions about the distribution of the errors.
+
+# The data
+We will use data from a genomics study in fruit fly [Drosophilia Melanogaster](https://en.wikipedia.org/wiki/Drosophila_melanogaster), which is widely used as a model organism.
+
+The study that produced our dataset was investigating the relationship between ageing and diet. We'll focus on just one part of the analysis, comparing the ratio of triglyceride (a type of fat) to protein in flies that have been fed four different diets.
+
+The original study is [here](https://elifesciences.org/articles/59399) but you're not expected to read it: all of the background you need is explained below.
+
+
+
+ 
+
+
+```{r, message = FALSE}
+library(bookdown)
+library(tidyverse)
+library(janitor)
+library(knitr)
+library(readxl)
+library(ggpubr)
+```
+
+ The data file is available on Blackboard.
+```{r}
+file_path <- "../data/elife-59399-fig1-data1-v2.xlsx"
+df <- read_excel(file_path,
+                    sheet = "H",
+                    range = "A1:F49",
+                    col_names = TRUE) %>%
+  clean_names() 
+```
+
+To get familiar with the data, do `View(df)`.
+
+We see that there are four different conditions (diets) and 12 different biological replicates in each condition. This means $4 \times 12 = 48$ flies were used in the experiment: observations with the same replicate number but different diet are entirely unrelated.
+
+We'll start by making an exploratory plot.
+
+```{r}
+ggplot(data = df,
+       mapping = aes(x = diet,
+                     y = tag_protein)) +
+  geom_boxplot() + 
+  ylab("TAG/protein ratio")
+```
+
+Fig 1H of the article shows a version of this plot, with the individual data points overlaid with a horizontal jitter to make them easier to distinguish, as below 
+
+```{r}
+ggplot(data = df,
+       mapping = aes(x = diet,
+                     y = tag_protein)) +
+  geom_boxplot(outlier.size = 0) + 
+  ylab("TAG/protein ratio") +
+  geom_jitter(width = 0.1)
+```
+We see that there are three different fixed diet (FD) conditions and one choice diet (CD) condition.
+
+# Specifying models
+
+## The general model
+
+Given the design of the experiment, we start with an unconstrained model that allows for the mean response to be arbitrarily different in the four different conditions.
+
+Since we have an intercept, we need three additional parameters to accommodate four different group means.
+
+We specify this as
+
+$$ y_{i} = \beta_0 + \beta_1 x_{i1} + \beta_{i2}x_{i2} + \beta_3 x_{i3} +  \epsilon_{i}, \qquad \epsilon_{i} \sim N(0, \sigma^2), $$
+
+where 
+
+$$
+x_{ij} =  \begin{cases} 
+  1 \qquad  \text{subject } i \text{ has diet } j \\
+  0 \qquad \text{otherwise}
+\end{cases}
+$$
+
+In this model, the design matrix $X$ is clearly of full rank. We estimate $p_1 = 4$ parameters from the data. There are therefore $n - p_1 = 48 - 4 = 44$ residual degrees of freedom.
+
+
+## The null model
+The null hypothesis is that diet has no effect, so that the mean response in all groups are equal. This is specified as
+
+$$ \beta_1 = \beta_2 = \beta_3 = 0. $$
+The null model is therefore has only an intercept,
+
+$$ y_{i} = \beta_0 + \epsilon_{ij}, \qquad \epsilon_{i} \sim N(0, \sigma^2). $$
+
+The null model has $p_0 = 1$ degree of freedom, because a single parameter $\beta_0$ is being estimated from the data. There are therefore
+$$n-p_0 = 48 - 1 = 47$$
+
+residual degrees of freedom.
+
+Note that the null model is a nested submodel of the general model.
+
+# Fitting models
+
+## Null model
+
+For simplicity, we start by fitting the intercept-only model in R as follows.
+
+```{r}
+fit0 <- lm(tag_protein ~ 1,
+           data = df)
+```
+
+The output is obtained through the summary
+```{r}
+summary(fit0)
+```
+
+We will now obtain all of these values by hand.
+
+First, we obtain the model matrix. For the intercept-only model, this is simply a single column,
+
+$$
+X = \begin{pmatrix}
+			 \uparrow  \\
+			 1 \\
+			 \downarrow 
+			 \end{pmatrix}.
+$$
+We can extract the design matrix $X_0$ from the model object,
+
+```{r}
+X0 <- model.matrix(fit0)
+```
+
+To match with the notation used throughout the module, we'll define the response varible as $y$:
+
+```{r}
+y <- df$tag_protein
+```
+
+***
+
+### Exercise
+
+
+On Problem Sheet 1, it is shown that for the null model, $\widehat{\beta}_0$ is just the sample mean $\bar{y}$. Verify the parameter value obtained in the object `fit0` by computing explicitly with `X0` and `y`.
+
+<details><summary>_show solution_</summary>
+
+For the intercept-only model, $X_0^TX_0$ is just the $1 \times 1$ matrix $(n)$.
+```{r}
+X0TX0 <- t(X0)%*%X0
+X0TX0
+```
+
+Hence $(X_0^T X_0 )^{-1}$ is just $(\frac{1}{n})$
+
+and so
+
+$$ \widehat{\beta_0} = (X_0^T X_0 )^{-1} X^T y = \frac{\sum_{i=1}^n y_i }{n} = \bar{y}.  $$
+Explicitly,
+```{r}
+mean(y)
+```
+
+This matches the value in `fit0` as expected.
+
+</details>
+
+***
+
+### Exercise
+
+Find the residual sum of squares $RSS_0$ for the null model, and use it to verify the residual standard error given in `fit0`.
+
+<details><summary>_show solution_</summary>
+
+The residual sum of squares is then
+
+$$ RSS_0 = \sum_{i=1}^n (y_i - \widehat{y}_0)^2 = \sum_{i=1}^n (y_i - \bar{y})^2   $$
+We compute this in R as the squared length of the vector of residuals
+
+```{r}
+e_hat0 <- residuals(fit0)
+RSS0 <- t(e_hat0)%*%e_hat0
+```
+
+The estimate of the residual variance is then
+
+$$ \widehat{\sigma_0}^2 = \frac{RSS_0}{n-p_0}  $$
+Explicitly
+
+```{r}
+n <- nrow(df)
+sigsq0 <- RSS0/(n-1)
+```
+
+The residual standard error is 
+
+```{r}
+sqrt(sigsq0)
+```
+
+which matches the output of `fit0`.
+</details>
+
+***
+
+## General alternative model
+
+Here is the R code for fitting the general alternative model, in which the four different diets are allowed to have different means.
+
+```{r}
+fit1 <- lm(tag_protein ~ diet,
+           data = df)
+```
+
+Note that by default, the syntax `y ~ x` fits a model that includes an intercept parameter as well as including `x` as a covariate.
+
+The model output is 
+```{r}
+summary(fit1)
+```
+***
+
+### Exercise
+
+Extract the design matrix as above and compute $\widehat{\beta}$ for the general alternative explicitly. Verify the computed value for the residual standard error.
+
+
+<details><summary>_show solution_</summary>
+
+We can extract the design matrix $X$ using `model.matrix`.
+
+```{r}
+X <- model.matrix(fit1)
+```
+
+This then allows us to compute $\widehat{\beta}$, 
+
+```{r}
+XTX <- t(X)%*%X
+beta_hat <- solve(XTX, t(X)%*% y)
+```
+
+```{r}
+summary(fit1)
+```
+
+The residual sum of squares is
+
+```{r}
+e_hat1 <- residuals(fit1)
+RSS1 <- t(e_hat1)%*%e_hat1
+```
+
+There are $p_1 = 4$ model degrees of freedom, so the residual variance estimate is
+
+```{r}
+sigsq1 <- RSS1/(n-4)
+```
+
+And the residual standard error
+
+```{r}
+sqrt(sigsq1)
+```
+
+matching the output of `fit1`.
+
+</details>
+
+# Confidence intervals for individual parameters 
+
+### Exercise
+
+Recalling that $Var\left(\widehat{\beta}\right) = \sigma^2 (X^T X)^{-1}$, obtain the standard errors for the parameter estimates given in `fit1`. Comment on the standard errors for the three non-intercept parameters.
+
+<details><summary>_show solution_</summary>
+
+The variance of $\widehat{\beta}_j$ is the $j$the diagonal entry of $\sigma^2 (X^T X)^{-1}$. The standard error is just the square root of this value. Plugging in the variance estimate gives
+
+```{r}
+sqrt(diag(solve(XTX))%*%sigsq1)
+```
+
+The three non-intercept parameters have equal standard error by symmetry: the design is balanced, i.e. all groups have an equal number of observations, hence equal standard errors.
+
+</details>
+***
+
+### Exercise
+
+Find a 95\% confidence interval for the mean difference between the S24Y3 group and the S30Y3 group. Comment on whether there is evidence for a difference between these groups in the mean response.
+
+
+<details><summary>_show solution_</summary>
+
+The mean in the S24Y3 group is
+
+$$ E(Y) = \beta_0 + \beta_1 $$
+and in the S30Y3 group is
+
+$$ E(Y) = \beta_0 + \beta_2,$$
+
+so the mean difference is $\beta_2 - \beta_1$, which we can write as $c^T \beta$ for $c = (0, -1,1, 0)$.
+
+The maximum likelihood estimate of this difference is
+```{r}
+diff_coef <- c(0, -1, 1, 0)
+diff_hat <- as.numeric(t(diff_coef)%*%beta_hat)
+```
+
+Note: we use `as.numeric` so that R treats this as a number rather than a $1 \times 1$ matrix (which would not be compatible with how we compute the confidence interval).
+
+
+This estimate of the difference has sampling variance $\sigma^2 c^T (X^TX)^{-1} c$. We compute this explicitly,
+
+```{r}
+var_diff <- diff_coef%*%solve(XTX)%*%diff_coef*sigsq1
+```
+
+The standard error is just the square root of this variance.
+```{r}
+se_diff <- as.numeric(sqrt(var_diff))
+```
+
+
+We need the appropriate quantile of the $t$ distribution with $n-p_1 = n-4$ degrees of freedom
+
+```{r}
+t_val <- qt(0.975, df = n - 4)
+```
+
+So that the confidence interval is given by
+
+```{r}
+diff_hat + t_val*se_diff%*%c(-1, 1)
+```
+
+</details>
+
+
+# F-test
+
+The final line of the F-test is a test of the null hypothesis corresponding to the intercept-only model.
+
+The test statistic in this case is
+
+$$ F = \frac{RSS_0 - RSS_1}{RSS_1} \frac{n-p_1}{p_1 - p_0}. $$
+All of the relevant quantitites are summarized in the **ANOVA table**,
+```{r}
+anova(fit0, fit1)
+```
+
+***
+
+### Exercise
+
+Verify the quantities given in the ANOVA table.
+
+
+<details><summary>_show solution_</summary>
+
+Under the null hypothesis the test statistic has the $F(p_1 -p_0, n-p_1)$ distribution. Here we have $p_1 - p_0 = 4 - 1 = 1$ and $n - p_1 = 48 - 4 = 44$, matching the $F(3, 44)$ distribution in the `fit1` output.
+
+```{r}
+F_stat <- (RSS0 - RSS1)/RSS1*(48 - 4)/(4-1)
+```
+
+The corresponding p-value is
+
+```{r}
+1-pf(F_stat, df1 = 3, df2 = 44)
+```
+
+This provides strong evidence against the null hypothesis of equal means. This seems reasonable given the plot.
+
+</details>
+***
+
+# References
+
+Original study:
+
+Lyu, Yang, et al. "Drosophila serotonin 2A receptor signaling coordinates central metabolic processes to modulate aging in response to nutrient choice." Elife 10 (2021): e59399.
+
+Discussed in:
+
+Walker, Jeffrey, [Applied Biostatistics for Experimental Biology](https://www.middleprofessor.com/files/applied-biostatistics_bookdown/_book/)
