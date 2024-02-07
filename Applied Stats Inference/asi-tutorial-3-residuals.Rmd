@@ -1,0 +1,350 @@
+---
+title: "Applied Statistical Inference - Tutorial 3"
+author: "Chris Hallsworth"
+date: "2023-12-27"
+output: 
+  rmdformats::robobook:
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+In this tutorial, we will look at some practical uses of the linear model. In the first two parts, we will develop experience reading residual plots. In the final section, we will understand how non-parametric smoothers work.
+
+# Diagnostic plots
+
+## Faraway
+
+We will first look at two datasets from the `faraway` package. These accompany the book Linear Models with R by Julian Faraway (which is strongly recommended!)
+
+We'll also use `ggplot` to make slightly neater plots, but this is by no means necessary.
+
+```{r}
+library(faraway)
+library(ggplot2)
+```
+
+For each dataset, doing `?dataset` gives you some information about the data context and variables.
+
+### SAT scores
+
+The data represents standardized test scores for different US states. Fit the model
+`total ~ expend + salary + ratio + takers` and look at the residual plots. Comment on each plot.
+
+<details><summary>_show solution_</summary>
+<p>
+```{r}
+data(sat)
+fit0 <- lm(total ~ expend + salary + ratio + takers,
+           data = sat)
+par(mfrow = c(2,2))
+plot(fit0)
+```
+
+
+- Quite large raw residuals
+- Evidently a non-linear relationship between response and `takers`.
+- Homgoeneity of variance seems reasonable.
+- Residuals look normal; no issues.
+- Largest Cook's distance is 0.5, not problematic
+
+
+Look at the data, adding in the linear regression line,
+
+```{r}
+ggplot(data = sat, mapping = aes(x = takers,
+                                 y = total)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+</details>
+
+### Quality of life
+
+Now consider the dataset `tvdoctor`. Look up the variables in the help and fit the model `life ~ .`, which fits the linear model including all other predictors in the data frame. Produce residual plots and consider whether transforming the predictors might be appropriate.
+
+<details><summary>_show solution_</summary>
+<p>
+```{r}
+fit1 <- lm(life ~ ., data = tvdoctor)
+par(mfrow = c(2,2))
+plot(fit1)
+```
+
+- Some large raw residuals.
+- Residuals normally distributed.
+- Influential point (Ethopia), with a large Cook's distance, since it has a large standardized residual and high leverage.
+- Note that Ethiopia is not the largest raw residual; it is only through looking at the standardized residuals that we see the effect.
+- Probably makes sense to consider this data on a log scale:
+
+```{r}
+ggplot(data = tvdoctor, mapping = aes( x = doctor,
+                                   y = life)) + geom_point() + scale_x_log10()
+```
+
+</details>
+
+## Glow worms
+
+Load in the glow worms data from blackboard. Note that the data come from [this paper](https://royalsocietypublishing.org/doi/10.1098/rsbl.2015.0599#d1e566), using the code below
+
+```{r}
+library(readxl)
+glow <- read_excel("/Users/calam/Desktop/Year 3/Applied Stats Inference/glow.xlsx",
+                   sheet = "Female data")
+
+colnames(glow) <- c("id",
+                    "brightness",
+                    "lantern_size",
+                    "eggs_laid",
+                    "eggs_body",
+                    "total_eggs")
+```
+
+Fit a linear model `total_eggs ~ lantern_size` and comment on the diagnostic plots.
+
+<details><summary>_show solution_</summary>
+<p>
+```{r}
+fit2 <- lm(total_eggs ~ lantern_size,
+           data = glow)
+par(mfrow = c(2,2))
+plot(fit2)
+```
+
+- Some evidence of nonlinearity in residuals vs fitted plot.
+- Standardized residuals appear normally distributed
+- Scale-location plot indicates non-constant variance, plausible for count (Poisson?) data.
+- No extreme Cook's distances: largest is $\approx 0.5$.
+
+We will return to this example to motivate Generalized Linear Models.
+
+</details>
+
+# Non-parametric smoothing
+
+
+Residual plots in R are overlaid with a *non-parametric smoother* to guide the eye. In what follows, we will study how these work.
+
+## K-nearest neighbours
+The simplest non-parametric smoothing methods are K-nearest neighbour methods, where the predicted value $\widehat{y}(x_0)$ at a point $x_0$ is just given by the average value of the nearest $K$ points in predictor space. The value of $K$ is our choice, and controls the smoothness of the resulting prediction.
+
+***
+
+### Exercise
+
+For the data generated below, use the `kknn` function from the `kknn` package to make a $K$-nearest neighbour prediction at the points `x_0` for several different values of $K$. See the help `?kknn` for the syntax. You will need to set `kernel = "rectangular"`.
+
+```{r}
+    set.seed(1)
+    x <- runif(40, 0, 2*pi)
+    y <- 2*sin(x) + rnorm(length(x))
+    x_0 = seq(0, 2*pi, 0.01)
+```
+
+<details><summary>_show solution_</summary> \\
+
+The syntax required is as follows.
+```{r}
+library(kknn)
+knn.fit <- kknn(y ~ x,
+                  train = data.frame("x" = x, "y" = y),
+                  test = data.frame("x" = x_0),
+                  k = 7,
+                  kernel = "rectangular")
+    
+plot(x, y, xlim = c(0, 2*pi), xlab = "", ylab = "")
+lines(x_0, 2*sin(x_0), col = "blue", lwd = 3)
+lines(x_0, knn.fit$fitted.values, type = "s", col = "orange", lwd = 2)
+```
+
+Explore varying $K$,
+
+```{r}
+K_vals <- c(3, 5, 7, 15, 25, 39)
+par(mfrow = c(2, 3))
+for(K in K_vals){
+  knn.fit <- kknn(y ~ x,
+                  train = data.frame("x" = x, "y" = y),
+                  test = data.frame("x" = x_0),
+                  k = K,
+                  kernel = "rectangular")
+    
+  plot(x, y, xlim = c(0, 2*pi), 
+       xlab = "", ylab = "", main = paste0("K = ", K))
+  lines(x_0, 2*sin(x_0), col = "blue", lwd = 3)
+  lines(x_0, knn.fit$fitted.values, type = "s", col = "orange", lwd = 2)
+  
+}
+
+```
+
+This clearly shows high bias when $K$ is large and high variance when $K$ is small.
+
+</details>
+
+## Nadaraya–Watson estimator
+Note that in K-nearest neighbours, each observation either counts or does not count in the prediction $\widehat{y}(x_0)$. This leads to a somewhat rough fitted function as different observations become included or excluded as nearest neighbours. 
+
+We can imagine a less harsh approach, where all observations make a contribution to the prediction, with the strength of an observation's contribution determined by its proximity to $x_0$. This is the idea behind the *Nadaraya-Watson estimator*.
+
+We define a *kernel function*, with an associated *bandwidth* $\lambda$, to give us a notion of distance.
+
+$$ K_\lambda(x_0,x) =  D\left( \frac{|x_0 - x |}{\lambda} \right). $$
+Two common kernel functions are the *Gaussian kernel* (just the standard Normal pdf),
+
+$$  D(t) = \frac{1}{\sqrt{2\pi}} \exp\left(- \frac{1}{2}t^2 \right),$$
+
+
+```{r}
+x0 <- 3
+x_seq <- seq(0,6, length.out = 100)
+h <- 2
+plot(x_seq, dnorm((x_seq-x0)/h), type = "l",
+     xlab ="",
+     ylab = "",
+     main = paste0("h = ", h))
+```
+
+and the *tricubic kernel*,
+
+$$  D(t) =
+	\begin{cases} 
+		(1 - |t|^3) ^3 \qquad & |t| \le 1 \\
+		0 \qquad & \text{otherwise}.
+	\end{cases} $$
+
+```{r}
+tricube <- function(t){
+  (abs(t) < 1)*(1-abs(t)^3)^3
+}
+plot(x_seq, tricube(x_seq-x0) ,
+  type = "l",
+     xlab ="",
+     ylab = "",
+  main = paste0("h = ", h))
+```
+ 
+Our kernel estimator is then just a weighted average
+
+$$  \widehat{y}(x_0) =  \frac{\sum_{i=1}^n K(x_0, x_i) y_i}{  \sum_{i=1}^n K(x_0, x_i)  } , $$
+
+***
+
+### Exercise
+
+Compute the Nadaraya-Watson estimator for the test points `x_0`. Compare the two kernels above, and explore how the bandwidth affects the estimator.
+
+You may find it helpful to use the `outer` command to make a matrix $W$ whose $(i,j)$ entry is $K(x_i, x_{0j})$.
+
+<details><summary>_show solution_</summary>
+<p>
+
+Use the `outer` function to make a matrix of weights
+
+```{r}
+h <- 0.5
+W <- outer(x, x_0, FUN = function(x,y) dnorm((x - y)/h))
+```
+
+Make estimator and plot
+```{r}
+y_hat <- y%*%W / colSums(W)
+plot(x_0, 2*sin(x_0), type = "l", ylim = c(-2, 2))
+lines(x_0, y_hat, type = "s", col = "orange", lwd = 2)
+```
+
+Explore changes in bandwidth
+
+```{r}
+h_vals <- seq(0.08, 0.7, length.out = 6)
+par(mfrow = c(2, 3))
+for(h in h_vals){
+  W <- outer(x, x_0, FUN = function(x,y) dnorm((x - y)/h))
+  y_hat <- y%*%W / colSums(W)
+  plot(x_0, 2*sin(x_0), type = "l", ylim = c(-3, 3))
+  lines(x_0, y_hat, type = "s", col = "orange", lwd = 2)
+}
+```
+
+Now investigate tricube kernel
+
+```{r}
+h_vals <- seq(0.05, 0.7, length.out = 6)
+par(mfrow = c(2, 3))
+for(h in h_vals){
+  W <- outer(x, x_0, FUN = function(x,y) tricube((x - y)/h))
+  y_hat <- y%*%W / colSums(W)
+  plot(x_0, 2*sin(x_0), type = "l", ylim = c(-3, 3))
+  lines(x_0, y_hat, type = "s", col = "orange", lwd = 2)
+}
+```
+
+</details>
+
+
+## Local regression
+
+The Nadaraya-Watson estimator essentially fits a locally constant model. A fairly natural extension is to fit a local polynomial model, e.g. a local linear model. This is what the smoother in R does, using the tricubic weight function.
+
+For a given point $x_0$, the locally weighted regression function $\widehat{y}(x_0) = \widehat{\alpha}(x_0) + \widehat{\beta}(x_0)x_0$ is the result of  minimizing the weighted least squares function
+
+$$  \sum_{i=1}^n  K_\lambda(x_0, x_i)  \left[ y_i - \alpha(x_0) - \beta(x_0) x_i  \right]^2.$$
+$\widehat{y}(x_0)$ can also be written as a weighted linear combination of observations $y_i$, although the form is more involved than for the Nadaraya-Watson estimator. We'll use the `KernSmooth` package to do this for us.
+
+***
+
+### Exercise
+First, verify that the function below reproduces your Nadaraya-Watson estimator
+
+```{r, message = FALSE}
+library(KernSmooth)
+NW.fit <- locpoly(x, y, degree = 0,
+                  bandwidth = h,
+                  kernel = "normal")
+```
+
+Then compare the Nadraya-Watson estimator and the local linear estimator that results from setting `degree = 1`. 
+
+<details><summary>_show solution_</summary>
+<p>
+
+Check our calculation against the package.
+
+```{r}
+h <- 0.5
+W <- outer(x, x_0, FUN = function(x,y) dnorm((x - y)/h))
+y_hat <- y%*%W / colSums(W)
+
+NW.fit <- locpoly(x, y, degree = 0, bandwidth = h, kernel = "normal")
+
+plot(x_0, 2*sin(x_0), type = "l", ylim = c(-3, 3))
+  lines(x_0, y_hat, type = "s", col = "orange", lwd = 2, lty = 4)
+  lines(NW.fit$x, NW.fit$y, type = "s", col = "blue", lwd = 1, lty = 2)
+
+```
+
+Happily identical.
+
+Now compare N-W and local linear estimators
+
+
+```{r}
+NW.fit <- locpoly(x, y, degree = 0, bandwidth = h, kernel = "normal")
+LR.fit <- locpoly(x, y, degree = 1, bandwidth = h, kernel = "normal")
+
+plot(x_0, 2*sin(x_0), type = "l", ylim = c(-3, 3))
+  lines(NW.fit$x, NW.fit$y, type = "s", col = "orange", lwd = 2, lty = 4)
+  lines(LR.fit$x, LR.fit$y, type = "s", col = "blue", lwd = 1, lty = 2)
+```
+
+Local linear estimator performs better at boundaries in particular.
+
+</details>
+
+

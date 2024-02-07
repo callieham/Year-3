@@ -1,0 +1,184 @@
+---
+title: "Applied Statistical Inference"
+
+date: "2024-01-04"
+output: 
+  rmdformats::robobook:
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+ans<-TRUE
+```
+
+# Linear Models with Categorical Variables
+
+In this exercise, we consider the `penicillin` dataset from the `faraway` package, which you may need to install.
+
+```{r eval=ans, include=ans}
+library(faraway)
+```
+
+a. Load the data and produce a box plot of `yield` against `treat`. You may find it helpful to look at the help page for the dataset: ``?penicillin``.
+
+<details><summary>_show solution_</summary>
+
+```{r eval=ans, include=ans}
+boxplot(yield ~ treat, data = penicillin)
+```
+
+</details>
+<p>
+
+b. Use `lm` to fit a linear model to determine the effect of `treat` on  `yield`. What contrasts have been used by default, i.e. how are the parameters related to the yields of different treatments? What do you notice about the standard errors of the parameters? Can you explain this using the design matrix used for the fit? What do you notice about the adjusted $R^2$?
+
+<details><summary>_show solution_</summary>
+
+
+
+
+```{r eval=ans, include=ans}
+contrasts(penicillin$treat)<-"contr.treatment"
+fit0 <- lm(yield ~ treat , data = penicillin)
+summary(fit0)
+X0<-model.matrix(fit0)
+t(X0)%*%X0
+```
+
+*Design is balanced - same number of observations of different treatments, so parameters are symmetrical under permutation. Hence same variance.*
+
+
+
+*Adjusted R^2 can be negative for small samples where the model does not explain much variablity. Manipulate the definition given in lectures to find the exact condition under which this occurs. *
+
+</details>
+<p>
+
+c. Now fit the same model using *deviation contrasts*, 
+```{r}
+contrasts(penicillin$treat)<-"contr.sum"
+fit1 <- lm(yield ~ treat, data = penicillin)
+```
+
+By looking at the design matrix, determine what the the parameter estimates represent. E.g. what hypothesis is tested in the line of the summary output line marked `treat1`?
+
+<details><summary>_show solution_</summary>
+
+
+*Sum to zero contrasts - Testing the hypothesis that the coefficient in  `treat1`  is zero is equivalent to testing the null hypothesis that the mean of observations with treatment $A$ is equal to the mean of all observations.*
+
+</details>
+<p>
+d. Make boxplots of the standardized residuals, extracted using `rstandard(fit1)` with separate boxes for each `blend`. What do you notice?  
+
+<details><summary>_show solution_</summary>
+
+```{r eval=ans, include=ans}
+boxplot(rstandard(fit1) ~ penicillin$blend)
+```
+*The residuals have systematically different distributions for different blends*
+
+</details>
+<p>
+e. Fit a model for `yield` using `treat` and `blend`, acting additively, i.e.
+`yield ~ treat+blend`. Use an F-test (the `anova` command) to compare this model with the null model that uses only `treat`.
+
+<details><summary>_show solution_</summary>
+
+```{r eval=ans, include=ans}
+fit2<-lm(yield ~ treat+blend,data=penicillin)
+summary(fit2)
+anova(fit1, fit2)
+```
+
+</details>
+
+<p>
+f.  Suppose now that we fit the model with *interaction terms* - here, this means that we allow each combination of `blend` and `treat` to have its own mean. The syntax to fit such a model using `lm` is `yield ~ treat*blend`. What is wrong with the standard errors in this case?
+
+<details><summary>_show solution_</summary>
+
+```{r eval=ans, include=ans}
+fit3 <- lm(yield ~ treat * blend,
+           data = penicillin)
+summary(fit3)
+```
+*The Model is saturated - same number of parameters as observations so residuals are all zero. *
+
+</details>
+
+# Sampling distributions of estimators
+
+Suppose a material of unknown volume is cut into four roughly equal parts, by first cutting the material in two, and then cutting each of the resulting pieces in two. Let the true values of the four volumes be $\mu_j$ for $j = 1,\ldots ,4$. 
+
+Two different strategies are suggested for estimating the four volumes using independent measurements. Each measurement $y_i$ of a volume is associated with an error $\epsilon_i \sim N(0,\sigma^2)$, but is unbiased for the true volume being measured.
+
+Strategy 1 is to measure each of the four resulting pieces twice. Strategy 2 is to make two measurements of each of the two pieces resulting from the first cut, and then a single measurement of each of the four pieces. Assume that $\sigma^2$ is known, and that measurements are independent.
+
+a. For each strategy, write down the design matrix that describes the relationship between the eight measured values and the four volumes.
+
+b. Simulate data - let the true volumes be (say) $1, 2, 3, 4$ and generate a large number (1000 is fine) of vectors of eight noisy measurements according to the two strategies.
+
+c. For each strategy, obtain estimates of the true volumes using each simulated dataset, by explicitly solving the normal equations. 
+
+d. Make scatter plots of pairs of estimates to show that the first strategy leads to uncorrelated estimates of the volumes, but the second gives correlated estimates. Which strategy leads to more precise estimates? You should be able to determine which is better just by comparing the design matrices. You can then verify this using the simulation output.
+
+<details><summary>_show solution_</summary>
+
+a. Make the design matrices.
+```{r eval=ans, include=ans}
+X1<-cbind(c(1,1,0,0,0,0,0,0),
+          c(0,0,1,1,0,0,0,0),
+          c(0,0,0,0,1,1,0,0),
+          c(0,0,0,0,0,0,1,1))
+M1<-t(X1)%*%X1
+
+X2<-cbind(c(1,1,0,0,1,0,0,0),
+          c(1,1,0,0,0,1,0,0),
+          c(0,0,1,1,0,0,1,0),
+          c(0,0,1,1,0,0,0,1))
+M2<-t(X2)%*%X2
+
+```
+
+b/c. Simulate the data. For each iteration, solve the normal equations to get estimates.
+```{r eval=ans, include=ans}
+v <- c(1:4)
+n <- length(v)
+n.samp <- 1000
+beta.hat1 <- matrix(0, nrow = n.samp, ncol = 4)
+beta.hat2 <- matrix(0, nrow = n.samp, ncol = 4)
+
+for(i in 1:n.samp){
+  y1 <- X1%*%v + rnorm(n,sd=.01)
+  y2 <- X2%*%v + rnorm(n,sd=.01)
+
+  beta.hat1[i,] <- solve(M1,t(X1)%*%y1)
+  beta.hat2[i,] <- solve(M2,t(X2)%*%y2)
+}
+```
+
+d. Make scatter plots of estimates
+```{r}
+par(mfrow=c(1,2))
+plot(beta.hat1[,1], beta.hat1[,2])
+plot(beta.hat2[,1], beta.hat2[,2])
+```
+
+Look at correlations and variances
+```{r}
+cor(beta.hat1[,1], beta.hat1[,2])
+cor(beta.hat2[,1], beta.hat2[,2])
+var(beta.hat1[,2])
+var(beta.hat2[,2])
+```
+
+So approach 1 has an MLE  with a lower variance. This makes sense when we compute the variances exactly. Ignoring the factor of $\sigma^2$ common to both strategies,
+
+```{r}
+diag(solve(M1))
+diag(solve(M2))
+```
+
+</details>

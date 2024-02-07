@@ -46,7 +46,7 @@ library(ggpubr)
 
  The data file is available on Blackboard.
 ```{r}
-file_path <- "../data/elife-59399-fig1-data1-v2.xlsx"
+file_path <- "/Users/calam/Desktop/Year 3/Applied Stats Inference/elife-59399-fig1-data1-v2.xlsx"
 df <- read_excel(file_path,
                     sheet = "H",
                     range = "A1:F49",
@@ -152,7 +152,7 @@ We can extract the design matrix $X_0$ from the model object,
 X0 <- model.matrix(fit0)
 ```
 
-To match with the notation used throughout the module, we'll define the response varible as $y$:
+To match with the notation used throughout the module, we'll define the response variable as $y$:
 
 ```{r}
 y <- df$tag_protein
@@ -170,7 +170,7 @@ On Problem Sheet 1, it is shown that for the null model, $\widehat{\beta}_0$ is 
 For the intercept-only model, $X_0^TX_0$ is just the $1 \times 1$ matrix $(n)$.
 ```{r}
 X0TX0 <- t(X0)%*%X0
-X0TX0
+c(solve(X0TX0, t(X0) %*% y), mean(y))
 ```
 
 Hence $(X_0^T X_0 )^{-1}$ is just $(\frac{1}{n})$
