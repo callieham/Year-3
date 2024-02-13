@@ -1,0 +1,549 @@
+---
+title: "The idea of Generalized Linear Models"
+author: "Chris Hallsworth"
+date: "09/02/2024"
+output: 
+  rmdformats::robobook:
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The aim of this tutorial is to introduce generalized linear models and a numerical method for fitting them. 
+
+**Note:** This is the longest tutorial so far, and it contains key material that will be useful for the next few weeks. You are *not* expected to finish it during the tutorial session!
+
+# An introductory example - Poisson regression
+
+Suppose we have $n$ independent Poisson observations,
+
+$$ Y_i \sim Po(\mu_i), \qquad i = 1, \ldots, n $$
+
+where 
+
+$$ E\left[Y_i \right] = \mu_i = \exp\left(\beta_0 + \beta_1 x_i\right). $$
+
+Note that the mean $\mu_i$ is related to $x$  by a non-linear function.
+
+How might such data arise in practice? We're sadly now all familiar with the exponential increase in the number of new cases of an epidemic, say
+
+$$\mu_i  = N_0 \exp(\beta_1 x_i) = \exp\left(\beta_0 + \beta_1 x_i\right). $$
+
+where the mean number of new cases $\mu$ is exponentially increasing with time, $x$.
+
+Here, $\mu$ represents a typical number of new cases: actual numbers of new cases would be subject to random variation, modelled well to a first approximation by a Poisson distribution, $Y_i \sim Po(\mu_i)$.
+
+Let's make a quick simulation of such data. Values chosen so the exponential increase starts to be visible.
+
+```{r}
+set.seed(56)
+n <- 200
+x <- seq(0, 12, length.out = n)
+beta0 <- 0
+beta1 <- 0.24
+eta <- beta0 + beta1*x 
+lambda <- exp( eta )
+y <- rpois(n, lambda = lambda)
+plot(x, y)
+```
+
+
+__Task__
+Fit a linear model to these data using the `lm` command. Plot the fitted model and look at the residual plots.
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+
+```{r}
+fit0 <- lm(y ~ x)
+plot(x, y)
+abline(fit0, col = "red")
+```
+
+Produce residual plots
+
+```{r}
+par(mfrow = c(1,2))
+plot(fit0)
+```
+
+Observations:
+
+- Pattern in the residuals vs fitted plot indicates that the functional relationship between covariates and response is not correct. To be fair, this is clear in the original data plot.
+
+- Q-Q plot looks reasonable for the central domain; perhaps a few more large (>3) standardized residuals than would be expected for a normal linear model.
+
+- Scale-Location plot shows a clear increase in standardized residuals as a function of fitted value. This suggests non-constant variance, as would be expected because for the Poisson distribution, the mean is equal to the variance.
+
+- No individually concerning observations in the residuals vs leverage plot.
+
+- Discrete nature of the response variable is residual, e.g. all observations with $Y = 1$ lie on a straight line in the fitted vs residual plot.
+
+```{r}
+ind <- y == 1 # which y == 1? Use for colour
+plot(fit0, 1, col = c("black", "orange")[1 + ind] )
+```
+
+</details>
+<p>
+
+__Task__
+
+Now, instead fit a linear model to a log-transformed version of $y$. Since $y$ can be zero, it makes sense to add a small constant, say use the transformed variable `z = 1 + y`. Again, plot the fitted model and look at the residual plots.
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+```{r}
+fit1 <- lm(log(1 + y) ~ x)
+plot(x, y)
+lines(x, exp(predict(fit1))-1, col = "red")
+```
+Produce residual plots for the transformed model.
+
+```{r}
+par(mfrow = c(1,2))
+plot(fit1)
+```
+
+This seems broadly OK but for larger $x$ values, the model seems to under-predict systematically. In the Scale-Location plot, we see a monotonic decreasing pattern in the standardized residuals.
+
+The estimated (constant) error variance must be something like an average of that for all observations, which will therefore be somewhat too large for small fitted values and somewhat too small for large fitted values. This is exactly what we see.
+
+</details>
+
+
+
+# Poisson GLM
+
+Evidently, the linear model still ignores important features of the data, even after transformation. The Poisson GLM will do better by respecting the mean-variance relationship of the response distribution.
+
+We will estimate the parameters of a Poisson Generalized Linear Model by the method of maximum likelihood, working from first principles.
+
+First, let's examine the log likelihood function.
+
+Recall that `dpois` just computes the Poisson mass function. 
+
+
+```{r}
+llk<-function(beta0, beta1, x, y){
+  eta <- beta0 + beta1*x # linear predictor
+  sum( dpois(y, lambda = exp(eta), log = TRUE) )
+}
+
+```
+
+We are going to make a plot of this over a grid of values, so we need a wrapper to vectorize it.
+```{r}
+llk_fun <- function(beta0, beta1) llk(beta0,beta1, x, y)
+llk_vec <- Vectorize(llk_fun)
+beta0_seq <- seq(-2,2,length.out=100)
+beta1_seq <- seq(-.1,.6,length.out=100)
+llk_contour <- outer(beta0_seq,
+                   beta1_seq,
+                   FUN = "llk_vec" )
+```
+
+Now we make a contour plot of the log likelihood function.
+
+```{r}
+contour(beta0_seq,
+        beta1_seq,
+        llk_contour,
+        levels = -c(1:20)*50,
+        xlab = expression(beta[0]),
+        ylab = expression(beta[1]))
+```
+
+__Task__
+
+Make plots showing cross-sections through the log liklihood surface, i.e. a profile log likelihood for one of the parameters, holding the other parameter fixed.
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+```{r}
+par(mfrow = c(1,2))
+plot(beta0_seq, llk_contour[50,])
+abline(v = beta0, col = "red")
+plot(beta1_seq, llk_contour[,50])
+abline(v= beta1, col = "red")
+```
+
+</details>
+
+
+
+## Fitting a model: explicit calculation
+
+The maximum likelihood equations for generalized linear models are non-linear and do not have closed form solutions, hence we will develop a numerical approach. We'll do this here from first principles.
+
+So that we have a clear understanding of what is going on, we will focus on the simplest example: an intercept-only model (so simple in fact that we can write down the exact solution). We'll then extend the ideas to our original two-parameter model.
+
+
+$$E(Y_i) = \lambda. $$
+
+With data $y_1,y_2,\ldots y_n$ our likelihood is
+
+$$L(\lambda)= \prod_{i=1}^n \exp(-\lambda)\frac{\lambda^{y_i}}{y_i!} =\exp(-n\lambda)\frac{\lambda^{\sum_{i=1}^ny_i}}{\prod_{i=1}^n y_i!}  $$ 
+
+then the log likelihood is
+
+$$l(\lambda) = -n\lambda + \log(\lambda) \sum_{i=1}^n y_i -\sum_{i=1}^n \log(y_i!). $$
+
+We can easily maximize this function by looking at the derivative
+
+$$ \frac{dl}{d\lambda} = -n + \frac{\sum_{i=1}^n y_i}{\lambda} $$
+
+so if the derivative is zero, must have 
+$$\hat{\lambda} = \frac{\sum_{i=1}^n y_i}{n}. $$
+
+The second derivative is
+
+$$ \frac{d^2l}{d\lambda^2} =  -\frac{\sum_{i=1}^n y_i}{\lambda^2} <0, $$
+
+so we clearly have a maximum for
+
+$$ \frac{d^2l}{d\lambda^2}\vert_{\lambda = \hat{\lambda}} =  -\frac{n}{\bar{y}} <0. $$
+
+But suppose that we could not explicitly solve for $\widehat{\lambda}$. We could instead proceed numerically, e.g. by using Newton's method.
+
+We start by giving the log likelihood function for the intercept-only model
+
+```{r}
+llk_pois <- function(x) sum(dpois(y,
+                                  lambda = x,
+                                  log = TRUE ))
+```
+
+Let's simulate some data from the intercept-only model and plot the log likelihood as a function of its parameter.
+
+```{r}
+lambda <- 3
+y <- rpois(n, lambda = lambda)
+lambda_seq <- seq(.1,6, length.out = 1000)
+
+llk_curve <- sapply(lambda_seq,
+             FUN = llk_pois )
+
+plot(lambda_seq,
+     llk_curve,
+     type= "l",
+     xlab = expression(lambda),
+     ylab="log lk")
+```
+
+We will code up a method for finding the maximum point of this curve numerically.
+
+We do this by successively maximizing approximations to the curve.
+
+## Fitting the model with Newton's method
+
+We'll see how Newton's method converges rapidly to the maximum.
+
+We expand the log likelihood as a Taylor series to second order. For small $h$,
+
+$$ l(\lambda_0 +h ) = l(\lambda_0)+h l'(\lambda_0) + \frac{1}{2}l''(\lambda_0)h^2 $$ 
+
+Using the first and second derivatives above, we can easily make the second order Taylor polynomial for $l$. `taylor2` encodes this, where the argument $x = \lambda_0 +h$.
+
+__Task__
+
+Complete the function below, which should return the value of the second order Taylor approximation to the log likelihood evaluated at $\lambda_0$.
+
+Overlay a plot of your approximant at $\lambda_0 =1$, say, on a copy of the log likelihood curve given above.
+
+```{r}
+taylor2 <- function(lambda0, x, y){
+
+}
+```
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+```{r}
+taylor2 <- function(lambda0, x, y){
+  n <- length(y)
+  llk_pois(lambda0) + 
+    (sum(y)/lambda0 -n)*(x-lambda0) -
+    0.5*sum(y)*((x-lambda0)/lambda0)^2 
+}
+```
+
+
+
+```{r}
+plot(lambda_seq,llk_curve, type= "l",xlab="lambda",ylab="log lk")
+lines(lambda_seq,
+      taylor2(1,lambda_seq,y), col = "red")
+```
+
+</details>
+
+<p>
+
+You should find that your approximant is close to the log likelihood for a small region around $\lambda = 1$.
+
+The idea behind Newton's method is as follows. Even if we can't maximize the log likelihood, we can always maximize the second order Taylor approximant - this is just a quadratic after all. We then take the maximum of our approximant as a new approximation to the maximum of the log likelihood, and repeat.
+
+__Task__
+
+Complete the function below, which returns the maximum point of the Taylor approximant - you should be able to determine easily where this occurs, in terms of the derivatives of the log likelihood. Add a dashed line showing the maximum on the plot above.
+
+```{r}
+newton_pt <- function(lambda0, y){
+
+}
+```
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+You should be able to convince yourself that the approximant has its maximum at 
+
+$$ h = -\frac{f`(\lambda_0)}{f''(\lambda_0)}. $$
+in code,
+
+```{r}
+newton_pt <- function(lambda0, y){
+  n<-length(y)
+  lambda0 + (sum(y)/lambda0 - n)*lambda0^2/sum(y)
+}
+```
+
+Here's a plot,
+
+```{r}
+plot(lambda_seq, llk_curve,
+     type = "l",
+     xlab ="lambda",
+     ylab ="log lk")
+lines(lambda_seq,
+      taylor2(1,lambda_seq,y),col="red")
+abline(v = newton_pt(1,y),
+       col="red",
+       lty=2)
+```
+
+</details> 
+
+<p>
+
+We might reasonably hope that this point, as the maximum of our approximant, is a better approximation to the maximum of the original function than the point we started with. Here, this is indeed the case.
+
+__Task__
+
+Do six (or so) steps of the process above: at each step, find the maximum of the Taylor approximant and use it to update your estimate of the maximum. Start the process at $\lambda_0 = 0.4$, further away from the maximum, so that you can see what is going on; it converges quickly. You are aiming here to make a figure similar to Fig 2.4 of the notes.
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+```{r}
+x0 <- 0.4
+
+par(mfrow = c(2,3))
+for(i in 1:6){
+  plot(lambda_seq,
+       llk_curve,
+       type = "l",
+       xlab = expression(lambda),
+       ylab = "log lk")
+  lines(lambda_seq,
+        taylor2(x0, lambda_seq, y),
+        col = i)
+  x0 <- newton_pt(x0, y)
+  abline(v = x0, col=i, lty=2)
+}
+
+
+```
+
+The method has converged quickly to a maximum. 
+
+</details>
+
+## Newton's method for the Poisson GLM with log link
+
+In a Poisson GLM with the log link, the expected response of the $i$th observation is
+
+$$ E[Y_i] = \lambda_i = \exp(\eta_i) = \exp(X_i\beta). $$
+
+
+As in the previous example, we can easily write down the log likelihood as a function of $\beta = (\beta_1,\ldots,\beta_p)$, 
+
+$$l(\beta) = -\sum_{i=1}^n \lambda_i +  \sum_{i=1}^n y_i \log(\lambda_i) -\sum_{i=1}^n \log(y_i!) .$$ 
+Newton's method carries over nicely to the multivariate setting. In terms of the gradient and hessian of $l$, the update step is just
+
+$$ h = - (\nabla^2 l)^{-1} \nabla l   $$
+
+__Task__
+
+For the Poisson GLM above, show that the gradient and hessian of $l$ are given by 
+
+$$ \nabla l = X^T(y -\lambda), \qquad \nabla^2 l = - X^T W X,  $$
+
+for a suitable matrix $W$.
+
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+In components,
+$$\frac{d \lambda_i}{d \beta_j} = X_{ij} \exp(X_i\beta) = X_{ij}\lambda_i. $$
+
+This means that we can write down the gradient of the log likelihood with respect to $\beta$ explicitly. The $j$th entry is
+
+$$ [\nabla l]_j = -\sum_{i=1}^n X_{ij}\lambda_i +  \sum_{i=1}^n y_i X_{ij} = \sum_{i=1}^n (y_i - \lambda_i)X_{ij},  $$
+
+or in matrix notation
+
+$$ \nabla l = X^T(y -\lambda).  $$ 
+
+Differentiating the $j$the entry of the gradient with respect to $\beta_k$ gives the ($j$,$k$) entry of the hessian matrix of second partial derivatives 
+
+$$ [\nabla l]_{jk} = - \sum_{i=1}^n X_{ij}X_{ik}\lambda_i,   $$
+
+or in matrix notation
+
+$$ \nabla^2 l = - X^T W X,  $$
+
+where $W$ is the diagonal matrix with $i$th entry $\lambda_i$.
+
+</details>
+
+<p>
+
+We can quickly implement Newton's method with the following functions:
+
+
+```{r}
+grad_pois<-function(beta,X,y){
+  lambda <- exp(X%*%beta)
+  t(X)%*%(y - lambda)
+}
+
+hess_pois<-function(beta,X,y){
+    lambda <- as.vector(exp(X%*%beta))
+    -t(X)%*%diag(lambda)%*%X
+}
+```
+
+Here we simulate some data from the Poisson regression model,
+
+```{r}
+n <- 50
+x <- seq(0,1,length.out=n)
+beta0 <- 0.5
+beta1 <- 0.3
+beta <- c(beta0, beta1)
+X <- cbind(1,x)
+eta <- X%*%beta
+y <- rpois(n, lambda = exp(eta))
+```
+
+__Task__
+
+Use the functions above to do ten iterations of Newton's method starting at the point $(\beta_0, \beta_1) = (0, 1.5)$. Plot the trajectory on a contour plot of the log likelihood.
+
+<details><summary>_show solutions_</summary>
+
+```{r}
+beta<-c(0, 1.5)
+beta_store <- matrix(nrow=10,ncol=2)
+for(i in 1:10){
+  beta_store[i,]<- beta
+  beta <- beta - solve(hess_pois(beta,X,y),
+                      grad_pois(beta,X,y))
+}
+```
+
+
+
+We can check our estimates using R's built in function for fitting GLMs,
+```{r}
+glm(y ~ x, family = "poisson") # R function for fitting GLM
+```
+
+Values are indeed very close.
+
+Here we show a contour plot of the log likelihood, with the trajectory taken by the numerical method.
+
+```{r}
+llk_fun <- function(beta0,beta1) llk(beta0,beta1, x, y)
+llk_vec <- Vectorize(llk_fun)
+beta0_seq <- seq(-4,4,length.out=100)
+beta1_seq <- seq(-2,2,length.out=100)
+llk_contour <- outer(beta0_seq,
+                     beta1_seq,
+                     FUN = "llk_vec" )
+contour(beta0_seq,
+        beta1_seq,
+        llk_contour,
+        levels=seq(-130,-80,5),
+        xlab = "beta0",
+        ylab="beta1")
+lines(beta_store[,1], beta_store[,2], col = "red")
+points(beta_store[,1], beta_store[,2], col = "red")
+
+```
+
+</details>
+
+<p>
+
+# Sampling distributions of maximum likelihood estimators
+
+__Task__
+
+Finally, convince yourself that the estimators $\widehat{\beta}$ are roughly normal by simulating many data sets as above, estimating the parameters using the `glm` command and then making suitable plots of the distribution of estimates. 
+
+__Solutions__
+
+<details><summary>_show solutions_</summary>
+
+
+```{r}
+n_sim <- 1000
+beta_mle <- matrix(nrow=n_sim,ncol=2)
+for(i in 1:n_sim){
+  y <- rpois(n,lambda= exp(eta)) # make data
+  fit_sim <- glm(y ~ x, family = poisson) # fit model
+  beta_mle[i,] <- coef(fit_sim) # store coefs
+}
+```
+
+Distributions should be centred on the truth, to be unbiased,
+
+```{r}
+par(mfrow=c(1,2))
+hist(beta_mle[,1])
+abline(v = 0.5, col = "red", lty = 2, lwd = 2)
+hist(beta_mle[,2])
+abline(v = 0.3, col = "red", lty = 2, lwd = 2)
+
+```
+
+As required.
+
+Now look at QQ plots for individual variables
+```{r}
+par(mfrow=c(1,2))
+qqnorm(beta_mle[,1])
+qqnorm(beta_mle[,2])
+```
+
+Close to normal in each case.
+
+</details>
